@@ -15,6 +15,8 @@ use std::{
     cmp,
     fmt::{self, Debug},
     iter, mem,
+    path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -137,6 +139,62 @@ impl fmt::Display for PeerId {
     }
 }
 
+pub trait FromProto {
+    fn from_proto(proto: String) -> Self;
+}
+
+pub trait ToProto {
+    fn to_proto(self) -> String;
+}
+
+impl FromProto for PathBuf {
+    #[cfg(target_os = "windows")]
+    fn from_proto(proto: String) -> Self {
+        proto.split("/").collect()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn from_proto(proto: String) -> Self {
+        PathBuf::from(proto)
+    }
+}
+
+impl FromProto for Arc<Path> {
+    fn from_proto(proto: String) -> Self {
+        PathBuf::from_proto(proto).into()
+    }
+}
+
+impl ToProto for PathBuf {
+    #[cfg(target_os = "windows")]
+    fn to_proto(self) -> String {
+        self.components()
+            .map(|comp| comp.as_os_str().to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn to_proto(self) -> String {
+        self.to_string_lossy().to_string()
+    }
+}
+
+impl ToProto for &Path {
+    #[cfg(target_os = "windows")]
+    fn to_proto(self) -> String {
+        self.components()
+            .map(|comp| comp.as_os_str().to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn to_proto(self) -> String {
+        self.to_string_lossy().to_string()
+    }
+}
+
 messages!(
     (AcceptTermsOfService, Foreground),
     (AcceptTermsOfServiceResponse, Foreground),
@@ -156,6 +214,7 @@ messages!(
     (CancelCall, Foreground),
     (ChannelMessageSent, Foreground),
     (ChannelMessageUpdate, Foreground),
+    (Commit, Background),
     (ComputeEmbeddings, Background),
     (ComputeEmbeddingsResponse, Background),
     (CopyProjectEntry, Foreground),
@@ -174,6 +233,8 @@ messages!(
     (Error, Foreground),
     (ExpandProjectEntry, Foreground),
     (ExpandProjectEntryResponse, Foreground),
+    (ExpandAllForProjectEntry, Foreground),
+    (ExpandAllForProjectEntryResponse, Foreground),
     (Follow, Foreground),
     (FollowResponse, Foreground),
     (FormatBuffers, Foreground),
@@ -216,8 +277,10 @@ messages!(
     (GetImplementationResponse, Background),
     (GetLlmToken, Background),
     (GetLlmTokenResponse, Background),
-    (GetStagedText, Foreground),
-    (GetStagedTextResponse, Foreground),
+    (OpenUnstagedDiff, Foreground),
+    (OpenUnstagedDiffResponse, Foreground),
+    (OpenUncommittedDiff, Foreground),
+    (OpenUncommittedDiffResponse, Foreground),
     (GetUsers, Foreground),
     (Hello, Foreground),
     (IncomingCall, Foreground),
@@ -246,6 +309,7 @@ messages!(
     (OpenBufferForSymbol, Background),
     (OpenBufferForSymbolResponse, Background),
     (OpenBufferResponse, Background),
+    (OpenCommitMessageBuffer, Background),
     (PerformRename, Background),
     (PerformRenameResponse, Background),
     (Ping, Foreground),
@@ -286,6 +350,7 @@ messages!(
     (ShareProject, Foreground),
     (ShareProjectResponse, Foreground),
     (ShowContacts, Foreground),
+    (Stage, Background),
     (StartLanguageServer, Foreground),
     (SubscribeToChannels, Foreground),
     (SynchronizeBuffers, Foreground),
@@ -295,6 +360,7 @@ messages!(
     (Test, Foreground),
     (Unfollow, Foreground),
     (UnshareProject, Foreground),
+    (Unstage, Background),
     (UpdateBuffer, Foreground),
     (UpdateBufferFile, Foreground),
     (UpdateChannelBuffer, Foreground),
@@ -303,7 +369,7 @@ messages!(
     (UpdateUserChannels, Foreground),
     (UpdateContacts, Foreground),
     (UpdateDiagnosticSummary, Foreground),
-    (UpdateDiffBase, Foreground),
+    (UpdateDiffBases, Foreground),
     (UpdateFollowers, Foreground),
     (UpdateInviteInfo, Foreground),
     (UpdateLanguageServer, Foreground),
@@ -385,6 +451,7 @@ request_messages!(
     ),
     (Call, Ack),
     (CancelCall, Ack),
+    (Commit, Ack),
     (CopyProjectEntry, ProjectEntryResponse),
     (ComputeEmbeddings, ComputeEmbeddingsResponse),
     (CreateChannel, CreateChannelResponse),
@@ -394,6 +461,7 @@ request_messages!(
     (DeleteChannel, Ack),
     (DeleteProjectEntry, ProjectEntryResponse),
     (ExpandProjectEntry, ExpandProjectEntryResponse),
+    (ExpandAllForProjectEntry, ExpandAllForProjectEntryResponse),
     (Follow, FollowResponse),
     (FormatBuffers, FormatBuffersResponse),
     (FuzzySearchUsers, UsersResponse),
@@ -414,7 +482,8 @@ request_messages!(
     (GetProjectSymbols, GetProjectSymbolsResponse),
     (GetReferences, GetReferencesResponse),
     (GetSignatureHelp, GetSignatureHelpResponse),
-    (GetStagedText, GetStagedTextResponse),
+    (OpenUnstagedDiff, OpenUnstagedDiffResponse),
+    (OpenUncommittedDiff, OpenUncommittedDiffResponse),
     (GetSupermavenApiKey, GetSupermavenApiKeyResponse),
     (GetTypeDefinition, GetTypeDefinitionResponse),
     (LinkedEditingRange, LinkedEditingRangeResponse),
@@ -436,6 +505,7 @@ request_messages!(
     (OpenBufferById, OpenBufferResponse),
     (OpenBufferByPath, OpenBufferResponse),
     (OpenBufferForSymbol, OpenBufferForSymbolResponse),
+    (OpenCommitMessageBuffer, OpenBufferResponse),
     (OpenNewBuffer, OpenBufferResponse),
     (PerformRename, PerformRenameResponse),
     (Ping, Ack),
@@ -460,6 +530,7 @@ request_messages!(
     (RespondToChannelInvite, Ack),
     (RespondToContactRequest, Ack),
     (SaveBuffer, BufferSaved),
+    (Stage, Ack),
     (FindSearchCandidates, FindSearchCandidatesResponse),
     (SendChannelMessage, SendChannelMessageResponse),
     (SetChannelMemberRole, Ack),
@@ -468,6 +539,7 @@ request_messages!(
     (SynchronizeBuffers, SynchronizeBuffersResponse),
     (TaskContextForLocation, TaskContext),
     (Test, Test),
+    (Unstage, Ack),
     (UpdateBuffer, Ack),
     (UpdateParticipantLocation, Ack),
     (UpdateProject, Ack),
@@ -513,11 +585,13 @@ entity_messages!(
     BufferReloaded,
     BufferSaved,
     CloseBuffer,
+    Commit,
     CopyProjectEntry,
     CreateBufferForPeer,
     CreateProjectEntry,
     DeleteProjectEntry,
     ExpandProjectEntry,
+    ExpandAllForProjectEntry,
     FindSearchCandidates,
     FormatBuffers,
     GetCodeActions,
@@ -530,7 +604,8 @@ entity_messages!(
     GetProjectSymbols,
     GetReferences,
     GetSignatureHelp,
-    GetStagedText,
+    OpenUnstagedDiff,
+    OpenUncommittedDiff,
     GetTypeDefinition,
     InlayHints,
     JoinProject,
@@ -543,6 +618,7 @@ entity_messages!(
     OpenBufferById,
     OpenBufferByPath,
     OpenBufferForSymbol,
+    OpenCommitMessageBuffer,
     PerformRename,
     PrepareRename,
     RefreshInlayHints,
@@ -552,14 +628,16 @@ entity_messages!(
     ResolveCompletionDocumentation,
     ResolveInlayHint,
     SaveBuffer,
+    Stage,
     StartLanguageServer,
     SynchronizeBuffers,
     TaskContextForLocation,
     UnshareProject,
+    Unstage,
     UpdateBuffer,
     UpdateBufferFile,
     UpdateDiagnosticSummary,
-    UpdateDiffBase,
+    UpdateDiffBases,
     UpdateLanguageServer,
     UpdateProject,
     UpdateProjectCollaborator,
@@ -736,5 +814,23 @@ mod tests {
             id: u32::MAX,
         };
         assert_eq!(PeerId::from_u64(peer_id.as_u64()), peer_id);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_proto() {
+        fn generate_proto_path(path: PathBuf) -> PathBuf {
+            let proto = path.to_proto();
+            PathBuf::from_proto(proto)
+        }
+
+        let path = PathBuf::from("C:\\foo\\bar");
+        assert_eq!(path, generate_proto_path(path.clone()));
+
+        let path = PathBuf::from("C:/foo/bar/");
+        assert_eq!(path, generate_proto_path(path.clone()));
+
+        let path = PathBuf::from("C:/foo\\bar\\");
+        assert_eq!(path, generate_proto_path(path.clone()));
     }
 }
